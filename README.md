@@ -33,6 +33,8 @@ The registration amount limit is a transport bound, not a claim about the deploy
 
 ## SDK handoff
 
+See [the backend SDK review](SDK_REVIEW.md) for the extracted interfaces, passing SDK checks, installed-package failure and remaining integration requirements. The SDK is not yet a runtime dependency.
+
 `createApi({ store, token, lookup })` injects a server-side lookup adapter. `lookup(record, { signal })` returns `null` for an unknown transaction, or `{ settlement, paymentVerified }`. Settlement fields match the current web `TransferSettlement` shape: `hash`, `successful`, `feeCharged`, `ledger`, `createdAt`.
 
 Only an adapter verifying the Testnet network, contract invocation, token, sender, recipient and amount against operation/event evidence may return `paymentVerified: true`. A transaction success flag alone is insufficient. Failed network transactions can be marked failed; missing results, exceptions, timeouts, invalid evidence and unverified successful payments do not change stored status. Concurrent requests share one lookup per process. Optimistic database revisions prevent delayed results from overwriting newer evidence; confirmed records cannot be downgraded.
