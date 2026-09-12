@@ -18,6 +18,20 @@ Reviewed the now-committed and published `@workspace/jisr-sdk` checkout as the b
 
 Prefer read-only subpath imports for backend runtime code once compiled exports exist. Do not import payment submission or adapt browser signing into the API. No runtime SDK integration is enabled by this review.
 
+## Plan-step-3 extraction gate — PASSED (September 12, 2026)
+
+Consumer review of the merged SDK extraction (jisr-web PR #14 → `main` `d911c3e`) before backend consumption, per docs/COLLABORATION_PLAN.md step 3:
+
+- **Tests:** 38 SDK + 18 web tests pass (`node --experimental-strip-types --test`), matching the PR claim.
+- **Typecheck:** workspace `tsc --build` green; web `tsc -p tsconfig.json --noEmit` green.
+- **Build:** Vite production build green (3209 modules, chunked, within limits). Root `pnpm run build/typecheck` still nest a bare `pnpm` locally; CI runs them correctly.
+- **Browser-free core:** the pinning test scans non-test SDK files for `import.meta`, `localStorage`, `document.`, `window.` and `freighter-api`; only `.test.ts` files match. The sole `import.meta.env` touchpoints are in the app (`App.tsx` BASE_URL, `main.tsx` prod-suppression via `setLogSink`, and the `network-config.ts` shim feeding `resolveNetworkConfig`).
+- **Exports:** barrel matches the `docs/API_HANDOFF.md` freeze table exactly; the `check-sdk.js` consumer smoke (exports + injected settlement) passes.
+- **Web shim:** `buildAndSubmitFreighterPayment` adapts Freighter to the SDK `PaymentWallet` port preserving the old call signature; no browser import leaks into the SDK.
+- **Honest gap confirmed:** no `payment.test.ts` exists; `payment.ts` orchestration is exercised only through `buildAndSubmitFreighterPayment`.
+
+Interface freeze validated. The remaining consumer blocker is the installed-package packaging (source-only exports → `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), which lives in the standalone `jisr-sdk` publication path, not in this extraction.
+
 ## Reproduce the consumer review
 
 From this clone, run `node scripts/check-sdk.js ../../lib/jisr-sdk`. It reads the SDK checkout, checks exports and settlement behavior with a fake fetcher, then probes the current source-only amount package layout in a temporary directory which it removes. Exit code 1 currently records the packaging blocker; this optional check is intentionally outside default CI because the SDK checkout is external and not version-pinned. Revisit the packaging probe when compiled artifacts become available.
