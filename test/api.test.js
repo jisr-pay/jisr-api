@@ -34,12 +34,15 @@ test('registration persists through restart and migration reruns; duplicates are
 
 test('registration rejects invalid identities, imprecise amounts and client status/secrets', t => {
   const store = setup(t);
-  for (const patch of [{ amount: 1 }, { amount: '0' }, { amount: '0.00000001' }, { amount: '1e3' },
+  for (const patch of [{ amount: 1 }, { amount: '0' }, { amount: '00000000001' }, { amount: '0.00000001' }, { amount: '1e3' },
+    { amount: '90000000000.1' }, { amount: '90000000001' },
     { network: 'PUBLIC' }, { asset: 'USDC' }, { status: 'confirmed' }, { signedXdr: 'secret' },
     { submittedAt: '2026-02-30T00:00:00.000Z' }, { hash: '../anything' }, { sender: 'G' },
     { sender: [transfer().sender] }, { recipient: [transfer().recipient] }]) {
     assert.throws(() => store.register({ ...transfer(), ...patch }), { code: 'INVALID_TRANSFER' });
   }
+  const atCap = store.register({ ...transfer(), hash: '0'.repeat(64), amount: '90000000000' });
+  assert.equal(atCap.record.amount, '90000000000');
 });
 
 test('unknown, unavailable, malformed and unverified evidence leave transfers pending', async t => {

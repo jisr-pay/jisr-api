@@ -29,17 +29,17 @@ All routes except health require `Authorization: Bearer <SERVICE_TOKEN>`. This c
 
 Registration requires exactly `hash`, `network`, `asset`, `sender`, `recipient`, `amount`, `contractId`, and `submittedAt`. Network must be `TESTNET`, asset `XLM`, amount a positive decimal string with at most seven fractional digits, and submittedAt a UTC timestamp like `2026-01-01T00:00:00.000Z`. Status, secrets and signed transaction payloads are rejected. Responses wrap the transfer in `{ "record": ... }`; errors use `{ "error": { "code": "...", "message": "..." } }`.
 
-The registration amount limit is a transport bound, not a claim about the deployed contract's accepted range. Address validation currently checks shape only; SDK checksum validation is pending. All submitted payment details remain claims until checked against network evidence.
+The registration amount is a positive decimal string with at most seven fractional digits and a maximum of 90,000,000,000 XLM (900,000,000,000,000,000 stroops), matching the frozen SDK `parseAmountToStroops` bound. This is a transport bound, not a claim about the deployed contract's accepted range. The transport retains its strict grammar (no whitespace or leading zeros) whereas SDK parsing trims and tolerates leading zeros; once the SDK ships compiled exports, `parseAmountToStroops` is used behind this grammar. Address validation currently checks shape only; SDK checksum validation is pending. All submitted payment details remain claims until checked against network evidence.
 
 ## SDK handoff
 
-See [the backend SDK review](SDK_REVIEW.md) for the extracted interfaces, passing SDK checks, installed-package failure and remaining integration requirements. The SDK is not yet a runtime dependency.
+See [the backend SDK review](SDK_REVIEW.md) for the extracted interfaces, passing SDK checks, installed-package failure and remaining integration requirements. The SDK interface was frozen after extraction and is published at `jisr-pay/jisr-sdk`; its compiled/declaration exports are not yet shipped, so this API is still not a runtime consumer of it.
 
 `createApi({ store, token, lookup })` injects a server-side lookup adapter. `lookup(record, { signal })` returns `null` for an unknown transaction, or `{ settlement, paymentVerified }`. Settlement fields match the current web `TransferSettlement` shape: `hash`, `successful`, `feeCharged`, `ledger`, `createdAt`.
 
 Only an adapter verifying the Testnet network, contract invocation, token, sender, recipient and amount against operation/event evidence may return `paymentVerified: true`. A transaction success flag alone is insufficient. Failed network transactions can be marked failed; missing results, exceptions, timeouts, invalid evidence and unverified successful payments do not change stored status. Concurrent requests share one lookup per process. Optimistic database revisions prevent delayed results from overwriting newer evidence; confirmed records cannot be downgraded.
 
-The default executable intentionally has no live adapter. Fixture adapters are used only in tests. After EthTobi's SDK extraction, replace the boundary with SDK imports and runtime validation, then implement the live adapter and wallet ownership verification. No signing, rebroadcasting, background polling scheduler, fiat payout or bank provider integration is implemented.
+The default executable intentionally has no live adapter. Fixture adapters are used only in tests. When the SDK ships compiled exports, replace the boundary with SDK imports and runtime validation, then implement the live adapter and wallet ownership verification. No signing, rebroadcasting, background polling scheduler, fiat payout or bank provider integration is implemented.
 
 This independent foundation uses Node HTTP and SQLite so it can run and be tested while the original Express/Postgres workspace remains under extraction. The existing API scaffold and database are not migrated or modified. Postgres migration and framework alignment should be agreed before production integration.
 

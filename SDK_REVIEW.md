@@ -1,18 +1,18 @@
-# Backend SDK review — September 11, 2026
+# Backend SDK review — September 12, 2026
 
-Reviewed EthTobi's in-progress `lib/jisr-sdk` checkout without editing it or the parent workspace. This is an observation of uncommitted work, not an agreed interface freeze.
+Reviewed the now-committed and published `@workspace/jisr-sdk` checkout as the backend consumer. The interface was frozen after extraction (docs/API_HANDOFF.md) and is published at `jisr-pay/jisr-sdk` (main `92abec3`, history-preserving rewrite, CI green on Windows and Linux). This is a re-verification of the September 11 review against the committed state; nothing here edits the SDK or parent workspace.
 
-## Verified
+## Verified on the committed SDK
 
 - Node 24.19.0 directly imports `src/index.ts` without a browser or wallet dependency.
-- All 35 extracted regression tests pass with `node --test --test-isolation=none`; TypeScript checking passes using the workspace TypeScript executable.
-- `TransferSettlement`, `SavedTransfer`, `TransferStatus`, `HistoryStorage` and `TransactionResult` are exported types. The settlement shape matches the API boundary. The SDK journal is synchronous and is not a replacement for transactional API storage.
-- `fetchSettlement(horizonUrl, hash, fetcher?)` supports injected HTTP reads. Unknown transactions return null; explicit failures remain distinguishable from transport errors. The consumer smoke check exercises this without network calls.
+- The barrel exports `parseAmountToStroops`, `fetchSettlement`, `isSavedTransfer`, `applySettlement`, `TransferSettlement`, `SavedTransfer`, `TransferStatus`, `HistoryStorage`, `TransactionResult` and the frozen error/rate-limit/logger/network surfaces, matching `docs/API_HANDOFF.md`.
+- `fetchSettlement(horizonUrl, hash, fetcher?)` still supports injected HTTP reads; unknown transactions return `null`; explicit failures remain distinguishable from transport errors. The consumer smoke check (`scripts/check-sdk.js`) passes this part without network calls.
+- Published SDK CI runs install/test/typecheck under `node --experimental-strip-types`, so it is green without producing compiled artifacts.
 
-## Integration blockers and requested interface changes
+## Integration blockers (unchanged unless noted)
 
-1. **Installed Node package fails.** Exports point to `.ts` source. Copying the dependency-free amount entrypoint into a real `node_modules/@workspace/jisr-sdk` directory and importing it on Node 24.19.0 fails with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. Workspace/source imports pass because they resolve outside that directory. Ship compiled JavaScript and declaration exports, then verify a packed artifact in an isolated Node consumer. Do not add a production dependency on the mutable parent checkout.
-2. **Amount bounds differ.** SDK `parseAmountToStroops` caps values at 900,000,000,000,000,000 stroops (90 billion XLM); the API transport currently allows up to signed 64-bit stroops. SDK parsing also trims whitespace and accepts leading zeroes while API transport rejects them. After packaging and interface freeze, reuse SDK parsing behind the strict transport grammar and document/test the agreed cap. Neither bound establishes deployed contract behavior.
+1. **Installed Node package still fails.** Exports still point to `.ts` source, so importing from a real `node_modules/@workspace/jisr-sdk` on Node 24.19.0 fails with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. Re-verified against the published `main`. Ship compiled JavaScript and declaration exports, then verify a packed artifact in an isolated Node consumer. Until then the API does not add the SDK as a runtime dependency.
+2. **Amount bounds now aligned.** The SDK `parseAmountToStroops` caps at 900,000,000,000,000,000 stroops (90 billion XLM); the API transport previously allowed up to signed 64-bit. The API transport now enforces the same cap through its strict grammar (no whitespace, no leading zeros), with regression coverage at and above the boundary. When compiled exports ship, replace that transport count with a direct `parseAmountToStroops` call behind the grammar. Neither bound establishes deployed contract behavior.
 3. **No payment identity evidence.** `fetchSettlement` provides transaction status, fee, ledger and timestamp only. It does not establish network passphrase, router invocation, token, sender, recipient or amount. Do not convert success into `paymentVerified: true`. A future evidence lookup must verify the configured network and decoded operation/event details. Original contract source is still required to establish intended fee and authorization behavior.
 4. **Cancellation and address checks.** The lookup uses its own ten-second timeout and exposes no caller signal; add signal composition for API cancellation. `isSavedTransfer` validates address shape only. `resolveNetworkConfig` validates configuration addresses, but there is no exported general registration checksum validator. Keep transport registration and trusted evidence validation distinct.
 
