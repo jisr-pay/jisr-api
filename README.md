@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/jisr-pay/.github/main/assets/icon.svg" alt="Jisr" width="72"></p>
+
 # Jisr API
 
 Internal Testnet transfer tracking with durable SQLite storage and read-only reconciliation orchestration. This foundation runs independently of the web workspace and has no npm runtime dependencies.
@@ -25,7 +27,7 @@ All routes except health require `Authorization: Bearer <SERVICE_TOKEN>`. This c
 | GET | `/healthz` | Checks database availability; does not claim live network readiness. |
 | POST | `/v1/transfers` | Registers an immutable pending transfer; 201 for new, 200 for identical retry, 409 for conflicting identity. |
 | GET | `/v1/transfers/:hash` | Reads one registered transfer. |
-| POST | `/v1/transfers/:hash/reconcile` | Runs the configured trusted network adapter; 503 until that adapter exists. |
+| POST | `/v1/transfers/:hash/reconcile` | Runs the configured trusted network adapter; 503 when no adapter is configured. |
 
 Registration requires exactly `hash`, `network`, `asset`, `sender`, `recipient`, `amount`, `contractId`, and `submittedAt`. Network must be `TESTNET`, asset `XLM`, amount a positive decimal string with at most seven fractional digits, and submittedAt a UTC timestamp like `2026-01-01T00:00:00.000Z`. Status, secrets and signed transaction payloads are rejected. Responses wrap the transfer in `{ "record": ... }`; errors use `{ "error": { "code": "...", "message": "..." } }`.
 
@@ -35,11 +37,11 @@ The registration amount is a positive decimal string with at most seven fraction
 
 See [the backend SDK review](SDK_REVIEW.md) for the extracted interfaces, passing SDK checks, installed-package failure and remaining integration requirements. The SDK interface was frozen after extraction and is published at `jisr-pay/jisr-sdk`; its compiled/declaration exports are not yet shipped, so this API is still not a runtime consumer of it.
 
-`createApi({ store, token, lookup })` injects a server-side lookup adapter. `lookup(record, { signal })` returns `null` for an unknown transaction, or `{ settlement, paymentVerified }`. Settlement fields match the current web `TransferSettlement` shape: `hash`, `successful`, `feeCharged`, `ledger`, `createdAt`.
+`createApi({ store, token, lookup })` injects a server-side lookup adapter. `lookup(record, { signal })` returns `null` for an unknown transaction, or `{ settlement, paymentVerified }`. Settlement fields match the current web `TransferSettlement` shape: `hash`, `successful`, `feeCharged`, `ledger`, `createdAt`. The live Horizon adapter, its verification matrix and outcome mapping are documented in [docs/EVIDENCE.md](docs/EVIDENCE.md); the wallet ownership verification design is in [docs/OWNERSHIP.md](docs/OWNERSHIP.md).
 
 Only an adapter verifying the Testnet network, contract invocation, token, sender, recipient and amount against operation/event evidence may return `paymentVerified: true`. A transaction success flag alone is insufficient. Failed network transactions can be marked failed; missing results, exceptions, timeouts, invalid evidence and unverified successful payments do not change stored status. Concurrent requests share one lookup per process. Optimistic database revisions prevent delayed results from overwriting newer evidence; confirmed records cannot be downgraded.
 
-The default executable intentionally has no live adapter. Fixture adapters are used only in tests. When the SDK ships compiled exports, replace the boundary with SDK imports and runtime validation, then implement the live adapter and wallet ownership verification. No signing, rebroadcasting, background polling scheduler, fiat payout or bank provider integration is implemented.
+The executable defaults to no live adapter and stays safe until `HORIZON_URL` is set (startup logs state which mode is active). Fixture adapters are used only in tests. When the SDK ships compiled exports, replace the boundary with SDK imports and runtime validation. No signing, rebroadcasting, background polling scheduler, fiat payout or bank provider integration is implemented.
 
 This independent foundation uses Node HTTP and SQLite so it can run and be tested while the original Express/Postgres workspace remains under extraction. The existing API scaffold and database are not migrated or modified. Postgres migration and framework alignment should be agreed before production integration.
 

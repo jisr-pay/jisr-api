@@ -1,0 +1,114 @@
+/**
+ * Live Horizon evidence adapter with an injectable fetcher.
+ *
+ * lookup(record, { signal }) has the same trusted-server contract as reconcile.js:
+ *   null                                     -> transaction unknown on Horizon
+ *   { settlement, paymentVerified, reason }  -> discoverable evidence
+ *
+ * paymentVerified is true only when a native XLM payment operation proves the
+ * transaction's sender, recipient and amount exactly. Payments routed through
+ * the route_payment contract are detected but their token/sender/recipient/
+ * amount identities cannot yet be proven without the contract source and
+ * Soroban event decoding; those default to unverified rather than guessed.
+ *
+ * The transaction fetch mirrors the frozen SDK fetchSettlement grammar so the
+ * bridge can be swapped to the SDK's parser once compiled exports ship; until
+ * then it lives here with the same strict transport checks.
+ */
+
+const STROOPS = 10_000_000n;
+const AXLE = 90_000_000_000_000_000n;
+
+function toStroops(amount) {
+  if (typeof amount !== 'string' || !/^(0|[1-9]\d{0,11})(\.\d{1,7})?$/.test(amount)) {
+    throw new Error('Malformed XLM amount in Horizon evidence.');
+  }
+  const [whole, fractional = ''] = amount.split('.');
+  return BigInt(whole) * STROOPS + BigInt(fractional.padEnd(7, '0'));
+}
+
+async function fetchJson(url, fetcher, signal) {
+  const response = await fetcher(url, { headers: { accept: 'application/json' }, signal });
+  if (response.status === 404) return { status: 404, body: null };
+  if (response.status === 429) {
+    const error = new Error('Horizon rate limit reached.');
+    error.code = 'RATE_LIMITED';
+    throw error;
+  }
+  if (!response.ok) throw new Error(`Horizon HTTP ${response.status}.`);
+  let body;
+  try { body = await response.json(); } catch { throw new Error('Horizon returned non-JSON body.'); }
+  return { status: response.status, body };
+}
+
+export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.now } = {}) {
+  if (typeof horizonUrl !== 'string' || !/^https?:\/\/[^/]+/.test(horizonUrl)) {
+    throw new TypeError('Invalid horizonUrl.');
+  }
+  if (typeof fetcher !== 'function') throw new TypeError('Invalid fetcher.');
+  const base = horizonUrl.replace(/\/+$/, '');
+
+  async function fetchTransaction(hash, signal) {
+    const { status, body } = await fetchJson(`${base}/transactions/${hash}`, fetcher, signal);
+    if (status === 404) return { notFound: true };
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('Invalid Horizon transaction payload.');
+    }
+    const errors = [];
+    if (body.id !== hash) errors.push('id');
+    if (typeof body.successful !== 'boolean') errors.push('successful');
+    if (!Number.isSafeInteger(body.ledger) || body.ledger <= 0) errors.push('ledger');
+    if (typeof body.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.Z-]+$/.test(body.created_at) ||
+        !Number.isFinite(Date.parse(body.created_at)) || Date.parse(body.created_at) > now() + 300_000) {
+      errors.push('created_at');
+    }
+    if (typeof body.fee_charged !== 'string' || !/^\d{1,18}$/.test(body.fee_charged)) errors.push('fee_charged');
+    if (errors.length) throw new Error(`Invalid Horizon transaction evidence: ${errors.join(', ')}.`);
+    const feeStroops = BigInt(body.fee_charged);
+    const feeCharged = `${feeStroops / STROOPS}.${(feeStroops % STROOPS).toString().padStart(7, '0')} XLM`;
+    return { settlement: { hash, successful: body.successful, ledger: body.ledger,
+      createdAt: body.created_at, feeCharged } };
+  }
+
+  async function fetchOperations(hash, signal) {
+    const { status, body } = await fetchJson(`${base}/transactions/${hash}/operations?limit=200&order=desc`,
+      fetcher, signal);
+    if (status === 404) return [];
+    if (!body?._embedded || !Array.isArray(body._embedded.records)) {
+      throw new Error('Invalid Horizon operations payload.');
+    }
+    return body._embedded.records;
+  }
+
+  function classify(record, ops) {
+    for (const op of ops) {
+      if (!op || op.type !== 'payment' || op.asset_type !== 'native') continue;
+      try {
+        if (op.from === record.sender && op.to === record.recipient &&
+            toStroops(op.amount) === toStroops(record.amount)) {
+          return { paymentVerified: true, reason: 'NATIVE_PAYMENT_MATCH' };
+        }
+      } catch { continue; }
+    }
+    const invoked = ops.some(op => op && op.type === 'invoke_host_function' &&
+      (record.contractId ? op.contract_id === record.contractId : typeof op.contract_id === 'string'));
+    if (invoked) return { paymentVerified: false, reason: 'CONTRACT_EVIDENCE_PENDING' };
+    return { paymentVerified: false, reason: 'NO_MATCHING_EVIDENCE' };
+  }
+
+  return function lookup(record, { signal } = {}) {
+    const verify = async () => {
+      if (record.network !== 'TESTNET' || record.asset !== 'XLM') {
+        throw new Error('Unsupported network or asset; this adapter only accepts Testnet XLM.');
+      }
+      const transaction = await fetchTransaction(record.hash, signal);
+      if (transaction.notFound) return null;
+      const ops = await fetchOperations(record.hash, signal);
+      const verdict = transaction.settlement.successful
+        ? classify(record, ops)
+        : { paymentVerified: false, reason: 'UNSUCCESSFUL_TRANSACTION' };
+      return { settlement: transaction.settlement, ...verdict };
+    };
+    return verify();
+  };
+}
