@@ -8,10 +8,14 @@ export function openStore(path) {
   try {
     db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; BEGIN IMMEDIATE;');
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 1) throw new Error('Database schema is newer than this application.');
+    if (version > 2) throw new Error('Database schema is newer than this application.');
     if (version === 0) {
       db.exec(readFileSync(new URL('../migrations/001_transfers.sql', import.meta.url), 'utf8'));
       db.exec('PRAGMA user_version = 1;');
+    }
+    if (version < 2) {
+      db.exec(readFileSync(new URL('../migrations/002_auth.sql', import.meta.url), 'utf8'));
+      db.exec('PRAGMA user_version = 2;');
     }
     db.exec('COMMIT;');
   } catch (error) {
@@ -26,6 +30,38 @@ export function openStore(path) {
   } : null;
   return {
     get(hash) { return decode(read.get('TESTNET', hash)); },
+    list(sender, after = '', limit = 50) {
+      return db.prepare(`SELECT * FROM transfers WHERE network = 'TESTNET'
+        AND json_extract(identity_json, '$.sender') = ? AND hash > ? ORDER BY hash LIMIT ?`)
+        .all(sender, after, limit).map(decode);
+    },
+    createChallenge(challenge, now) {
+      db.prepare('DELETE FROM auth_challenges WHERE expires_at <= ?').run(now);
+      if (db.prepare('SELECT count(*) AS count FROM auth_challenges').get().count >= 10000 ||
+          db.prepare('SELECT count(*) AS count FROM auth_challenges WHERE address = ?').get(challenge.address).count >= 5) {
+        throw new ApiError(429, 'RATE_LIMITED', 'Too many outstanding challenges. Try again later.');
+      }
+      db.prepare('INSERT INTO auth_challenges (id, address, message, expires_at) VALUES (?, ?, ?, ?)')
+        .run(challenge.id, challenge.address, challenge.message, challenge.expiresAt);
+    },
+    challenge(id) { return db.prepare('SELECT * FROM auth_challenges WHERE id = ?').get(id); },
+    // Consumption and session creation are atomic across processes/restarts.
+    exchangeChallenge(id, tokenHash, expiresAt, now) {
+      db.exec('BEGIN IMMEDIATE;');
+      try {
+        const row = db.prepare('DELETE FROM auth_challenges WHERE id = ? AND expires_at > ? RETURNING address').get(id, now);
+        if (!row) throw new ApiError(401, 'INVALID_PROOF', 'Challenge expired or already used.');
+        db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now);
+        db.prepare('INSERT INTO auth_sessions (token_hash, address, expires_at) VALUES (?, ?, ?)')
+          .run(tokenHash, row.address, expiresAt);
+        db.exec('COMMIT;');
+        return row.address;
+      } catch (error) { db.exec('ROLLBACK;'); throw error; }
+    },
+    session(tokenHash, now) {
+      return db.prepare('SELECT address FROM auth_sessions WHERE token_hash = ? AND expires_at > ?').get(tokenHash, now)?.address;
+    },
+    revokeSession(tokenHash) { db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(tokenHash); },
     register(input) {
       const identity = registration(input);
       const serialized = JSON.stringify(identity);

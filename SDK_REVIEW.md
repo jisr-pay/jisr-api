@@ -35,3 +35,12 @@ Interface freeze validated. The remaining consumer blocker is the installed-pack
 ## Reproduce the consumer review
 
 From this clone, run `node scripts/check-sdk.js ../../lib/jisr-sdk`. It reads the SDK checkout, checks exports and settlement behavior with a fake fetcher, then probes the current source-only amount package layout in a temporary directory which it removes. Exit code 1 currently records the packaging blocker; this optional check is intentionally outside default CI because the SDK checkout is external and not version-pinned. Revisit the packaging probe when compiled artifacts become available.
+
+## September 13 backend continuation
+
+Standalone SDK HEAD e8d641f still exports TypeScript source. The checkout smoke
+passes; installed Node import still fails with ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING.
+Jisr runtime integration remains blocked on compiled exports. The API now uses
+@stellar/stellar-sdk 16.3.0 directly for checksum and signature primitives, so
+registration checksums and wallet key-possession authentication are implemented.
+Amount/settlement parsing remains mirrored until Jisr packaging is ready.

@@ -1,16 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { openStore } from '../src/store.js';
 import { createReconciler } from '../src/reconcile.js';
 import { createApi } from '../src/server.js';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
+
+const sender = Keypair.random().publicKey();
+const recipient = Keypair.random().publicKey();
 
 const transfer = () => ({ hash: 'a'.repeat(64), network: 'TESTNET', asset: 'XLM',
-  sender: `G${'A'.repeat(55)}`, recipient: `G${'B'.repeat(55)}`, amount: '1.0000001',
-  contractId: `C${'D'.repeat(55)}`, submittedAt: '2026-01-01T00:00:00.000Z' });
+  sender, recipient, amount: '1.0000001',
+  contractId: StrKey.encodeContract(Buffer.alloc(32)), submittedAt: '2026-01-01T00:00:00.000Z' });
 const evidence = (successful = true) => ({ paymentVerified: true, settlement: {
   hash: 'a'.repeat(64), successful, ledger: 10, createdAt: '2026-01-01T00:00:05Z', feeCharged: '0.0000100 XLM',
 } });
@@ -32,13 +37,39 @@ test('registration persists through restart and migration reruns; duplicates are
   store.close();
 });
 
+test('v1 migration preserves existing identity and settlement; newer schemas are rejected', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jisr-migrate-'));
+  const path = join(dir, 'db.sqlite');
+  let raw;
+  let store;
+  try {
+    raw = new DatabaseSync(path);
+    raw.exec(readFileSync(new URL('../migrations/001_transfers.sql', import.meta.url), 'utf8'));
+    raw.exec('PRAGMA user_version = 1');
+    raw.prepare('INSERT INTO transfers (network, hash, identity_json, status, settlement_json, revision) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('TESTNET', transfer().hash, JSON.stringify(transfer()), 'confirmed', JSON.stringify(evidence().settlement), 3);
+    raw.close(); raw = undefined;
+    store = openStore(path);
+    assert.equal(store.get(transfer().hash).revision, 3);
+    assert.equal(store.register(transfer()).record.status, 'confirmed');
+    assert.deepEqual(store.get(transfer().hash).settlement, evidence().settlement);
+    store.close(); store = undefined;
+    raw = new DatabaseSync(path);
+    assert.equal(raw.prepare('PRAGMA user_version').get().user_version, 2);
+    raw.exec('PRAGMA user_version = 3');
+    raw.close(); raw = undefined;
+    assert.throws(() => openStore(path), /newer/);
+  } finally { store?.close(); raw?.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('registration rejects invalid identities, imprecise amounts and client status/secrets', t => {
   const store = setup(t);
   for (const patch of [{ amount: 1 }, { amount: '0' }, { amount: '00000000001' }, { amount: '0.00000001' }, { amount: '1e3' },
     { amount: '90000000000.1' }, { amount: '90000000001' },
     { network: 'PUBLIC' }, { asset: 'USDC' }, { status: 'confirmed' }, { signedXdr: 'secret' },
     { submittedAt: '2026-02-30T00:00:00.000Z' }, { hash: '../anything' }, { sender: 'G' },
-    { sender: [transfer().sender] }, { recipient: [transfer().recipient] }]) {
+    { sender: [transfer().sender] }, { recipient: [transfer().recipient] },
+    { sender: `G${'A'.repeat(55)}` }, { contractId: undefined }]) {
     assert.throws(() => store.register({ ...transfer(), ...patch }), { code: 'INVALID_TRANSFER' });
   }
   const atCap = store.register({ ...transfer(), hash: '0'.repeat(64), amount: '90000000000' });
@@ -86,7 +117,7 @@ test('two database connections enforce duplicate identity and revision protectio
   t.after(() => { first.close(); second.close(); rmSync(dir, { recursive: true, force: true }); });
   first.register(transfer());
   assert.equal(second.register(transfer()).created, false);
-  assert.throws(() => second.register({ ...transfer(), recipient: `G${'C'.repeat(55)}` }), { code: 'TRANSFER_CONFLICT' });
+  assert.throws(() => second.register({ ...transfer(), recipient: sender }), { code: 'TRANSFER_CONFLICT' });
   first.settle(transfer().hash, 0, evidence().settlement);
   assert.equal(second.settle(transfer().hash, 0, evidence(false).settlement).status, 'confirmed');
 });

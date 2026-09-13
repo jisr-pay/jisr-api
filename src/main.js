@@ -11,9 +11,12 @@ mkdirSync(dirname(databasePath), { recursive: true });
 const store = openStore(databasePath);
 // Opt-in live evidence adapter. Without HORIZON_URL the executable keeps the
 // original no-adapter default so it cannot report false settlement evidence.
-const lookup = process.env.HORIZON_URL ? createHorizonLookup({ horizonUrl: process.env.HORIZON_URL }) : undefined;
+let lookup;
 let server;
-try { server = createApi({ store, token: process.env.SERVICE_TOKEN, lookup }); }
+try {
+  lookup = process.env.HORIZON_URL ? createHorizonLookup({ horizonUrl: process.env.HORIZON_URL }) : undefined;
+  server = createApi({ store, token: process.env.SERVICE_TOKEN, lookup, walletOrigin: process.env.WALLET_AUTH_ORIGIN });
+}
 catch (error) { store.close(); throw error; }
 server.on('error', error => {
   console.error(`Server failed: ${error.code ?? 'UNKNOWN'}`);

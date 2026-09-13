@@ -6,7 +6,8 @@
  *   { settlement, paymentVerified, reason }  -> discoverable evidence
  *
  * paymentVerified is true only when a native XLM payment operation proves the
- * transaction's sender, recipient and amount exactly. Payments routed through
+ * transaction's sender, recipient and amount exactly, with no contract claim.
+ * The endpoint must identify itself as Testnet. Payments routed through
  * the route_payment contract are detected but their token/sender/recipient/
  * amount identities cannot yet be proven without the contract source and
  * Soroban event decoding; those default to unverified rather than guessed.
@@ -17,7 +18,7 @@
  */
 
 const STROOPS = 10_000_000n;
-const AXLE = 90_000_000_000_000_000n;
+const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
 function toStroops(amount) {
   if (typeof amount !== 'string' || !/^(0|[1-9]\d{0,11})(\.\d{1,7})?$/.test(amount)) {
@@ -28,7 +29,7 @@ function toStroops(amount) {
 }
 
 async function fetchJson(url, fetcher, signal) {
-  const response = await fetcher(url, { headers: { accept: 'application/json' }, signal });
+  const response = await fetcher(url, { headers: { accept: 'application/json' }, signal, redirect: 'error' });
   if (response.status === 404) return { status: 404, body: null };
   if (response.status === 429) {
     const error = new Error('Horizon rate limit reached.');
@@ -42,8 +43,10 @@ async function fetchJson(url, fetcher, signal) {
 }
 
 export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.now } = {}) {
-  if (typeof horizonUrl !== 'string' || !/^https?:\/\/[^/]+/.test(horizonUrl)) {
-    throw new TypeError('Invalid horizonUrl.');
+  let endpoint;
+  try { endpoint = new URL(horizonUrl); } catch { throw new TypeError('Invalid horizonUrl.'); }
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new TypeError('Horizon must use HTTPS without credentials, query or fragment.');
   }
   if (typeof fetcher !== 'function') throw new TypeError('Invalid fetcher.');
   const base = horizonUrl.replace(/\/+$/, '');
@@ -55,7 +58,7 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
       throw new Error('Invalid Horizon transaction payload.');
     }
     const errors = [];
-    if (body.id !== hash) errors.push('id');
+    if (body.hash !== hash || body.id !== hash) errors.push('hash');
     if (typeof body.successful !== 'boolean') errors.push('successful');
     if (!Number.isSafeInteger(body.ledger) || body.ledger <= 0) errors.push('ledger');
     if (typeof body.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.Z-]+$/.test(body.created_at) ||
@@ -66,7 +69,7 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
     if (errors.length) throw new Error(`Invalid Horizon transaction evidence: ${errors.join(', ')}.`);
     const feeStroops = BigInt(body.fee_charged);
     const feeCharged = `${feeStroops / STROOPS}.${(feeStroops % STROOPS).toString().padStart(7, '0')} XLM`;
-    return { settlement: { hash, successful: body.successful, ledger: body.ledger,
+    return { sourceAccount: body.source_account, settlement: { hash, successful: body.successful, ledger: body.ledger,
       createdAt: body.created_at, feeCharged } };
   }
 
@@ -82,11 +85,15 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
 
   function classify(record, ops) {
     for (const op of ops) {
-      if (!op || op.type !== 'payment' || op.asset_type !== 'native') continue;
+      if (!op || op.transaction_hash !== record.hash || op.transaction_successful !== true ||
+          op.type !== 'payment' || op.asset_type !== 'native') continue;
       try {
         if (op.from === record.sender && op.to === record.recipient &&
             toStroops(op.amount) === toStroops(record.amount)) {
-          return { paymentVerified: true, reason: 'NATIVE_PAYMENT_MATCH' };
+          // A native payment cannot establish a claimed contract invocation.
+          return record.contractId
+            ? { paymentVerified: false, reason: 'CONTRACT_EVIDENCE_PENDING' }
+            : { paymentVerified: true, reason: 'NATIVE_PAYMENT_MATCH' };
         }
       } catch { continue; }
     }
@@ -101,13 +108,19 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
       if (record.network !== 'TESTNET' || record.asset !== 'XLM') {
         throw new Error('Unsupported network or asset; this adapter only accepts Testnet XLM.');
       }
+      const root = await fetchJson(base, fetcher, signal);
+      if (root.body?.network_passphrase !== TESTNET_PASSPHRASE) {
+        throw new Error('Horizon endpoint did not establish Stellar Testnet identity.');
+      }
       const transaction = await fetchTransaction(record.hash, signal);
       if (transaction.notFound) return null;
-      const ops = await fetchOperations(record.hash, signal);
+      // Explicit failure does not depend on operation availability.
+      const ops = transaction.settlement.successful
+        ? await fetchOperations(record.hash, signal) : [];
       const verdict = transaction.settlement.successful
         ? classify(record, ops)
         : { paymentVerified: false, reason: 'UNSUCCESSFUL_TRANSACTION' };
-      return { settlement: transaction.settlement, ...verdict };
+      return { settlement: transaction.settlement, senderVerified: transaction.sourceAccount === record.sender, ...verdict };
     };
     return verify();
   };

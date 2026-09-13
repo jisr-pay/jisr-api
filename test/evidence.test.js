@@ -3,19 +3,20 @@ import assert from 'node:assert/strict';
 import { createHorizonLookup } from '../src/evidence.js';
 import { openStore } from '../src/store.js';
 import { createReconciler } from '../src/reconcile.js';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
 
 const HASH = 'a'.repeat(64);
-const CONTRACT = 'C' + 'A'.padEnd(55, 'A').slice(0, 56);
+const CONTRACT = StrKey.encodeContract(Buffer.alloc(32));
 const TX = {
-  id: HASH, successful: true, ledger: 104, created_at: '2026-01-01T00:00:00Z',
+  id: HASH, hash: HASH, successful: true, ledger: 104, created_at: '2026-01-01T00:00:00Z',
   fee_charged: '12345000',
 };
 const record = {
-  hash: HASH, network: 'TESTNET', asset: 'XLM', sender: 'G' + 'A'.padEnd(55, 'A').slice(0, 56),
-  recipient: 'G' + 'B'.padEnd(55, 'B').slice(0, 56), amount: '12.3456700', contractId: CONTRACT,
+  hash: HASH, network: 'TESTNET', asset: 'XLM', sender: Keypair.random().publicKey(),
+  recipient: Keypair.random().publicKey(), amount: '12.3456700', contractId: CONTRACT,
   submittedAt: '2026-01-01T00:00:00.000Z',
 };
-const nativeOp = (overrides = {}) => ({ type: 'payment', asset_type: 'native', asset_code: null,
+const nativeOp = (overrides = {}) => ({ transaction_hash: HASH, transaction_successful: true, type: 'payment', asset_type: 'native', asset_code: null,
   asset_issuer: null, from: record.sender, to: record.recipient, amount: '12.3456700', ...overrides });
 
 function routes(ops = [], { assetOvers = {}, tx = TX } = {}) {
@@ -28,7 +29,7 @@ function routes(ops = [], { assetOvers = {}, tx = TX } = {}) {
 function fetcher(routes) {
   return async (url, { signal } = {}) => {
     const path = url.replace('https://horizon.testnet', '').split('?')[0];
-    const hit = routes[path];
+    const hit = routes[path] ?? (path === '' ? { status: 200, body: { network_passphrase: 'Test SDF Network ; September 2015' } } : undefined);
     if (signal?.aborted) throw new Error('aborted');
     if (!hit) return new Response('{}', { status: 404 });
     if (hit.throw) throw hit.throw;
@@ -39,8 +40,46 @@ function lookup() {
   return createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: fetcher(routes([nativeOp()])) });
 }
 
+test('wrong or missing endpoint network identity rejects evidence', async () => {
+  for (const body of [{ network_passphrase: 'Public Global Stellar Network ; September 2015' }, {}]) {
+    const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
+      fetcher: fetcher({ ...routes([nativeOp()]), '': { status: 200, body } }) });
+    await assert.rejects(() => adapter(record), /Testnet identity/);
+  }
+});
+
+test('transaction hash must match even when id matches', async () => {
+  const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
+    fetcher: fetcher(routes([nativeOp()], { tx: { ...TX, hash: 'b'.repeat(64) } })) });
+  await assert.rejects(() => adapter(record), /hash/);
+});
+
+test('unrelated or unsuccessful operations cannot prove payment', async () => {
+  for (const override of [{ transaction_hash: 'b'.repeat(64) }, { transaction_successful: false }]) {
+    const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
+      fetcher: fetcher(routes([nativeOp(override)])) });
+    assert.equal((await adapter({ ...record, contractId: null })).paymentVerified, false);
+  }
+});
+
+test('explicit failure survives an unavailable operations endpoint', async () => {
+  const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: fetcher({
+    ...routes([], { tx: { ...TX, successful: false } }),
+    [`/transactions/${HASH}/operations`]: { status: 503 },
+  }) });
+  assert.equal((await adapter(record)).settlement.successful, false);
+});
+
+test('transaction source establishes sender identity independently of failed operations', async () => {
+  for (const source of [record.sender, record.recipient, undefined]) {
+    const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
+      fetcher: fetcher(routes([], { tx: { ...TX, successful: false, source_account: source } })) });
+    assert.equal((await adapter(record)).senderVerified, source === record.sender);
+  }
+});
+
 test('native XLM payment matches sender, recipient and amount exactly', async () => {
-  const result = await lookup()(record, {});
+  const result = await lookup()({ ...record, contractId: null }, {});
   assert.equal(result.paymentVerified, true);
   assert.equal(result.reason, 'NATIVE_PAYMENT_MATCH');
   assert.deepEqual(result.settlement, { hash: HASH, successful: true, ledger: 104,
@@ -70,7 +109,7 @@ test('amount mismatch cannot verify payment identity', async () => {
 
 test('amount equality is compared in stroops regardless of trailing precision', async () => {
   const result = await createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: fetcher(routes([
-    nativeOp({ amount: '12.34567' })])) })(record, {});
+    nativeOp({ amount: '12.34567' })])) })({ ...record, contractId: null }, {});
   assert.equal(result.paymentVerified, true);
 });
 
@@ -123,14 +162,25 @@ test('constructor validates horizonUrl and fetcher', () => {
   assert.throws(() => createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: 5 }), TypeError);
 });
 
-test('reconciler marks matching evidence confirmed', async () => {
+test('reconciler keeps native evidence pending when registration claims a contract', async () => {
   const store = openStore(':memory:');
   store.register(record);
   const reconcile = createReconciler(store, lookup(), { timeoutMs: 5000 });
   const { record: updated, outcome } = await reconcile(HASH);
-  assert.equal(outcome, 'confirmed');
-  assert.equal(updated.status, 'confirmed');
+  assert.equal(outcome, 'unverified_payment');
+  assert.equal(updated.status, 'pending');
   store.close();
+});
+
+test('native registration confirms from matching evidence and survives idempotent retry', async t => {
+  const store = openStore(':memory:');
+  t.after(() => store.close());
+  const native = { ...record, contractId: null };
+  store.register(native);
+  const result = await createReconciler(store, lookup())(HASH);
+  assert.equal(result.outcome, 'confirmed');
+  assert.equal(store.register(native).record.status, 'confirmed');
+  assert.throws(() => store.register(record), { code: 'TRANSFER_CONFLICT' });
 });
 
 test('reconciler leaves unverified successful payments pending', async () => {

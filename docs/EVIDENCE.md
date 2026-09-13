@@ -19,9 +19,10 @@ keeps the transfer pending or marks a genuine network failure as failed.
 ## Implementation: `createHorizonLookup`
 
 `src/evidence.js` implements the boundary against Horizon with an injectable
-fetcher (no network and no npm dependencies in tests):
+fetcher (network responses are mocked in tests):
 
-- `GET /transactions/{hash}` — transaction record (id, successful, ledger,
+- `GET /` - requires the exact Stellar Testnet `network_passphrase` before reading transaction evidence.
+- `GET /transactions/{hash}` — transaction record (matching id and hash, successful, ledger,
   created_at, fee_charged). 404 → unknown; 429 → throws (unavailable).
 - `GET /transactions/{hash}/operations` — operations list used for identity.
 
@@ -34,12 +35,12 @@ the contract stays identical.
 
 | Path | Proven this session? | Why |
 | --- | --- | --- |
-| Native XLM payment op | Yes | `type=payment & asset_type=native`; exact sender, recipient and stroops-equivalent amount match. |
+| Native XLM payment op | Only without a contract claim | `type=payment & asset_type=native`; exact sender, recipient and stroops-equivalent amount match. |
 | `route_payment` (Soroban) | Partially | Invocation to the registered contract is detected, but token/sender/recipient/amount live in **Soroban events**, whose decoding needs the original contract source — pending. |
 
-Native-path victories satisfy network, token, sender, recipient and amount.
-Contract-routed transfers are returned as `CONTRACT_EVIDENCE_PENDING` (never
-guessed) until event decoding lands.
+Native operations must carry the requested transaction hash and a successful operation flag. A native match cannot prove a registered contract invocation: registrations with a non-null `contractId` keep these successful payments pending with `CONTRACT_EVIDENCE_PENDING`. Register native payments with explicit `contractId: null`; matching native evidence can confirm these records. Contract event decoding remains outstanding. Explicit failed transactions do not require an operations lookup.
+
+Reference: [Horizon payment object](https://developers.stellar.org/docs/data/apis/horizon/api-reference/resources/payments/object).
 
 ### Outcomes
 
@@ -64,3 +65,7 @@ unconfigured service cannot report false settlement evidence.
   deployment provenance from the source holder).
 - **SDK compiled exports** so `parseAmountToStroops` / `fetchSettlement` are
   consumed behind this transport grammar instead of mirrored.
+The adapter also returns senderVerified when the transaction source_account
+matches the claimed sender. This allows a wallet to register its own failed
+transaction without claiming the failed operations paid anyone. HTTPS is required
+and redirects are rejected.

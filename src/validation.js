@@ -1,11 +1,12 @@
 import { ApiError } from './errors.js';
+import { StrKey } from '@stellar/stellar-sdk';
 
 export const identityFields = ['hash', 'network', 'asset', 'sender', 'recipient', 'amount', 'contractId', 'submittedAt'];
 const invalid = () => { throw new ApiError(400, 'INVALID_TRANSFER', 'Invalid Testnet transfer registration.'); };
 export const isHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
-// Transport validation only. SDK StrKey checksum validation and network evidence
-// remain required before addresses or payment details can be trusted.
+// Checksummed transport identities remain unverified payment claims until
+// trusted network evidence establishes the registered payment.
 // The stroops upper bound mirrors the frozen SDK parseAmountToStroops cap
 // (90,000,000,000 XLM). When the SDK ships compiled exports, swap this count
 // for a direct parseAmountToStroops call behind this strict transport grammar.
@@ -13,9 +14,9 @@ export function registration(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input) ||
       Object.keys(input).some(key => !identityFields.includes(key)) ||
       !isHash(input.hash) || input.network !== 'TESTNET' || input.asset !== 'XLM' ||
-      typeof input.sender !== 'string' || !/^G[A-Z2-7]{55}$/.test(input.sender) ||
-      typeof input.recipient !== 'string' || !/^G[A-Z2-7]{55}$/.test(input.recipient) ||
-      typeof input.contractId !== 'string' || !/^C[A-Z2-7]{55}$/.test(input.contractId) ||
+      typeof input.sender !== 'string' || !StrKey.isValidEd25519PublicKey(input.sender) ||
+      typeof input.recipient !== 'string' || !StrKey.isValidEd25519PublicKey(input.recipient) ||
+      (input.contractId !== null && (typeof input.contractId !== 'string' || !StrKey.isValidContract(input.contractId))) ||
       typeof input.amount !== 'string' || !/^(0|[1-9]\d{0,11})(\.\d{1,7})?$/.test(input.amount) ||
       typeof input.submittedAt !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(input.submittedAt) ||

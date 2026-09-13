@@ -1,57 +1,62 @@
-# Wallet ownership verification
+﻿# Wallet sessions
 
-Design for the acceptance criterion: *"Define and implement wallet ownership
-verification before exposing private account history or accepting owner-scoped
-mutations. A supplied public address is not authentication."*
+Implemented behind `WALLET_AUTH_ORIGIN`, an explicit HTTPS origin such as
+`https://pay.example`. HTTP localhost/127.0.0.1 are allowed for development.
+Routes remain disabled when the setting is absent. Serve frontend and API
+through the same origin; cross-origin browser requests are not enabled.
 
-## Problem
+## Protocol
 
-A Stellar `G...` sender address is public. Anyone can claim another address and
-look up or mutate that account's state. The existing registration validates
-address **shape** only, and explicitly states checksum validation is pending
-(on the SDK). Neither proves the registrant holds the private key.
+1. POST `/v1/wallet/challenges` with `{ "address": "G..." }`. The server checks
+   the address checksum and returns id, address, message and expiresAt (epoch ms).
+2. Ask the wallet to sign the exact UTF-8 message using SEP-53. Do not prepend
+   the Stellar prefix yourself: the wallet handles prefixing and hashing.
+3. POST `/v1/wallet/sessions` with `{ "id": "...", "signature": "..." }`.
+   The signature is canonical base64 encoding of 64 Ed25519 signature bytes.
+4. Use the token as `Authorization: Bearer <token>` on wallet routes. It expires
+   after 15 minutes. Keep tokens in memory, never in URLs or logs.
+5. DELETE `/v1/wallet/session` revokes that token. Disconnecting the browser
+   wallet should clear the local token and call this route.
 
-## Design (proposal — not yet implemented)
+Challenges include the configured origin, Testnet, address, random 256-bit
+nonce, issue time, five-minute expiry and login purpose. SQLite consumes the
+challenge and creates its session atomically. Replays fail across processes
+and restarts. Only origin-bound token hashes are stored. Signatures and private
+keys are not persisted. Expired rows are pruned on authentication writes.
 
-Registration associates a transfer with a sender address. Ownership adds a
-one-time possession proof bound to that registration:
+Each socket peer is limited to 120 wallet requests per minute; forwarded IP
+headers are ignored. The limiter holds at most 10,000 peers. Outstanding
+challenges are capped at five per address and 10,000 globally. These are local
+service controls; a public reverse proxy should also enforce request limits.
 
-1. **Challenge.** The service issues a fresh, single-use challenge:
-   `nonce = base64(32 random bytes)`, with an expiry (5 minutes). The client
-   never pre-signs; each challenge is issued per registration attempt.
-2. **Signing.** The wallet signs a deterministic message over the canonical
-   fields with its Stellar key:
-   `"jisr-pay/v1\n<network>\n<contractId>\n<sender>\n<nonce>"` using
-   Ed25519 (as Stellar produces from the keypair).
-3. **Verification.** The service recomputes the message, verifies the signature
-   against `sender` and checks the nonce has not been used and has not
-   expired. Any failure rejects the registration.
-4. **Binding.** A verified session binds subsequent owner-scoped reads and
-   mutations to that ownership proof until it expires; re-authentication is
-   required on expiry.
+## Authorization
 
-### Threat model
+- `/v1/wallet/transfers`: POST requires sender equal to the session address;
+  GET lists only that sender, 50 per page, ordered by hash. Pass nextCursor as after.
+- `/v1/wallet/transfers/{hash}` and its `/reconcile` route return 404 for another
+  sender, including when the caller knows the hash.
+- Service credentials and wallet sessions cannot access each other's routes.
+- Registration remains an unverified claim. A signature authenticates the
+  API caller; only network evidence can confirm a payment.
 
-- **Replay** — single-use nonce + expiry defeat replayed signatures.
-- **Cross-network replay** — the network string is inside the signed message.
-- **Confused-deputy** — the message domain (`jisr-pay/v1`) prevents the
-  signature being reused as a Stellar transaction.
-- **Stale claims** — no check on "who owns the address today"; ownership is a
-  live possession proof at registration time, which is the specified scope.
+## Scope and evidence
 
-### Acceptance criteria met by this design
+This is key-possession authentication, not SEP-10 account authentication. It
+does not evaluate account signer weights, disabled master keys, multisig or
+muxed accounts. Access is defined by possession of the G-address key, not
+current on-chain transaction authority. It does not authorize funds.
+An account-authority product requires SEP-10 and a separately reviewed policy.
 
-- Defined before any private-history route or owner-scoped mutation exists
-  (none do today — recording this now keeps the gate closed).
-- Testable: duplicate nonce, expired nonce, wrong network, wrong domain,
-  signature from a different key, malformed base64, and cross-key transfer
-  must all fail; the happy path must pass.
-- Signed payloads are verified **server-side**; the signed message is not a
-  private key and nothing secret is stored.
+The implementation uses Stellar SDK checksum/Ed25519 primitives and the
+[SEP-53 specification](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md).
+Tests include the published vector, domain/network/nonce tampering, wrong-key
+proofs, expiry, replay, restart persistence, revocation, HTTP origin checks,
+sender isolation and pagination. Real Freighter acceptance remains a frontend
+handoff task.
 
-## Status
-
-Not implemented. Reason: the SDK (checksum validators + Ed25519 sign/verify
-helpers) does not yet ship compiled exports, and the ownership gate is defined
-before owner-scoped routes. When the SDK lands, implement behind the frozen
-SDK helpers and wire into registration + owner-scoped reads.
+New wallet registrations require trusted network evidence first, preventing a
+caller from reserving another payment's hash. A successful native payment must
+match the claimed identity; a failed transaction must prove its source address.
+Unknown/malformed/unavailable evidence returns 503; keep local history and retry.
+Unverified identity returns 422. Identical existing retries work while offline
+from Horizon. Service-only registration retains its trusted pending-first model.
