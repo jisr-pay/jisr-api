@@ -12,20 +12,19 @@
  * amount identities cannot yet be proven without the contract source and
  * Soroban event decoding; those default to unverified rather than guessed.
  *
- * The transaction fetch mirrors the frozen SDK fetchSettlement grammar so the
- * bridge can be swapped to the SDK's parser once compiled exports ship; until
- * then it lives here with the same strict transport checks.
+ * The SDK validates transaction settlement; this adapter additionally verifies
+ * endpoint and payment identity, bounds evidence, and composes cancellation.
  */
 
-const STROOPS = 10_000_000n;
+import { parseAmountToStroops } from '@workspace/jisr-sdk/amount';
+import { fetchSettlement } from '@workspace/jisr-sdk/settlement';
 const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
 function toStroops(amount) {
   if (typeof amount !== 'string' || !/^(0|[1-9]\d{0,11})(\.\d{1,7})?$/.test(amount)) {
     throw new Error('Malformed XLM amount in Horizon evidence.');
   }
-  const [whole, fractional = ''] = amount.split('.');
-  return BigInt(whole) * STROOPS + BigInt(fractional.padEnd(7, '0'));
+  return parseAmountToStroops(amount);
 }
 
 async function fetchJson(url, fetcher, signal) {
@@ -52,25 +51,25 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
   const base = horizonUrl.replace(/\/+$/, '');
 
   async function fetchTransaction(hash, signal) {
-    const { status, body } = await fetchJson(`${base}/transactions/${hash}`, fetcher, signal);
-    if (status === 404) return { notFound: true };
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new Error('Invalid Horizon transaction payload.');
-    }
-    const errors = [];
-    if (body.hash !== hash || body.id !== hash) errors.push('hash');
-    if (typeof body.successful !== 'boolean') errors.push('successful');
-    if (!Number.isSafeInteger(body.ledger) || body.ledger <= 0) errors.push('ledger');
-    if (typeof body.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.Z-]+$/.test(body.created_at) ||
-        !Number.isFinite(Date.parse(body.created_at)) || Date.parse(body.created_at) > now() + 300_000) {
-      errors.push('created_at');
-    }
-    if (typeof body.fee_charged !== 'string' || !/^\d{1,18}$/.test(body.fee_charged)) errors.push('fee_charged');
-    if (errors.length) throw new Error(`Invalid Horizon transaction evidence: ${errors.join(', ')}.`);
-    const feeStroops = BigInt(body.fee_charged);
-    const feeCharged = `${feeStroops / STROOPS}.${(feeStroops % STROOPS).toString().padStart(7, '0')} XLM`;
-    return { sourceAccount: body.source_account, settlement: { hash, successful: body.successful, ledger: body.ledger,
-      createdAt: body.created_at, feeCharged } };
+    let body;
+    const settlement = await fetchSettlement(base, hash, async (url, options) => {
+      const combined = AbortSignal.any([signal, options?.signal].filter(Boolean));
+      const response = await fetcher(url, { ...options, signal: combined,
+        headers: { accept: 'application/json' }, redirect: 'error' });
+      // One network request and one JSON read. SDK validation consumes the same
+      // body whose source_account supplies registration ownership evidence.
+      return { status: response.status, ok: response.ok, json: async () => {
+        body = await response.json();
+        if (!body || Array.isArray(body) || body.id !== hash ||
+            typeof body.fee_charged !== 'string' || !/^\d{1,18}$/.test(body.fee_charged) ||
+            typeof body.created_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.Z-]+$/.test(body.created_at) ||
+            Date.parse(body.created_at) > now() + 300_000) {
+          throw new Error('Invalid supplemental transaction evidence.');
+        }
+        return body;
+      } };
+    });
+    return settlement ? { sourceAccount: body.source_account, settlement } : { notFound: true };
   }
 
   async function fetchOperations(hash, signal) {

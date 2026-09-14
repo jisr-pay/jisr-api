@@ -5,10 +5,9 @@ The API is not deployed and the web app has not been wired to these routes.
 
 ## EthTobi priorities
 
-1. Publish compiled JavaScript and declaration exports for `@workspace/jisr-sdk`.
-   Test an actual packed artifact in an isolated Node consumer. Source-only
-   exports still fail with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
-   Keep the frozen read-only subpaths and avoid browser dependencies.
+1. SDK v0.3.0 packaging and backend integration are verified. Keep the read-only
+   exports compatible when publishing later versions; report the package version
+   and artifact/source commit.
 2. Add payment-flow component coverage before splitting `AgentPipeline.tsx`:
    signature rejection, duplicate clicks, saved hash before broadcast, timeout,
    reload recovery, failed settlement, and receipt retry. Keep EN/AR parity.

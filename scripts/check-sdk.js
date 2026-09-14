@@ -1,42 +1,51 @@
-// Read-only consumer review of an SDK checkout; never loads it into the API.
-import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, rmSync } from 'node:fs';
+﻿import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const source = resolve(process.argv[2] ?? '../../lib/jisr-sdk');
-const sdk = await import(pathToFileURL(join(source, 'src/index.ts')));
-for (const name of ['parseAmountToStroops', 'fetchSettlement', 'isSavedTransfer', 'applySettlement']) {
-  assert.equal(typeof sdk[name], 'function', `Missing export: ${name}`);
-}
-assert.equal(sdk.parseAmountToStroops('0.0000001'), 1n);
-const hash = 'a'.repeat(64);
-const settlement = await sdk.fetchSettlement('https://example.invalid', hash, async () =>
-  new Response(JSON.stringify({ hash, successful: true, ledger: 1,
-    fee_charged: '100', created_at: '2026-01-01T00:00:00Z' })));
-assert.equal(settlement.feeCharged, '0.0000100 XLM');
-assert.equal(await sdk.fetchSettlement('https://example.invalid', hash,
-  async () => new Response(null, { status: 404 })), null);
-console.log('Checkout exports and injected read-only settlement smoke checks passed.');
-
-// An actual package directory (not a workspace symlink) exercises Node's
-// node_modules TypeScript restriction without installing or changing the SDK.
+// npm run supplies its portable CLI entrypoint, avoiding shell command quoting.
+if (!process.env.npm_execpath) throw new Error('Run with npm run check:sdk.');
 const root = mkdtempSync(join(tmpdir(), 'jisr-sdk-consumer-'));
 try {
-  const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'));
-  const destination = join(root, 'node_modules', '@workspace', 'jisr-sdk');
-  mkdirSync(join(destination, 'src'), { recursive: true });
-  copyFileSync(join(source, 'package.json'), join(destination, 'package.json'));
-  copyFileSync(join(source, 'src/amount.ts'), join(destination, 'src/amount.ts'));
-  const probe = spawnSync(process.execPath,
-    ['--input-type=module', '-e', `import('${manifest.name}/amount')`],
+  mkdirSync(join(root, 'vendor'));
+  for (const file of ['package.json', 'package-lock.json', 'vendor/workspace-jisr-sdk-0.3.0.tgz']) {
+    copyFileSync(resolve(file), join(root, file));
+  }
+  const install = spawnSync(process.execPath, [process.env.npm_execpath, 'ci', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'],
     { cwd: root, encoding: 'utf8' });
-  if (probe.status !== 0) {
-    console.error(probe.stderr);
-    process.exitCode = 1;
-  } else console.log('Installed amount entrypoint imports successfully.');
+  if (install.status !== 0) throw new Error(install.stderr || 'Isolated installation failed. Run npm ci first to populate cache.');
+  const probe = `
+    import assert from 'node:assert/strict';
+    import { readFileSync, lstatSync } from 'node:fs';
+    import { parseAmountToStroops } from '@workspace/jisr-sdk/amount';
+    import { fetchSettlement } from '@workspace/jisr-sdk/settlement';
+    import { isSavedTransfer, applySettlement } from '@workspace/jisr-sdk/transfer-history';
+    const manifest = JSON.parse(readFileSync('node_modules/@workspace/jisr-sdk/package.json', 'utf8'));
+    assert.equal(manifest.version, '0.3.0');
+    assert.equal(lstatSync('node_modules/@workspace/jisr-sdk').isSymbolicLink(), false);
+    for (const entry of Object.values(manifest.exports)) {
+      if (typeof entry === 'string') continue;
+      assert.ok(entry.default.endsWith('.js'));
+      assert.ok(readFileSync('node_modules/@workspace/jisr-sdk/' + entry.types).length);
+    }
+    assert.equal(typeof isSavedTransfer, 'function');
+    assert.equal(typeof applySettlement, 'function');
+    assert.equal(parseAmountToStroops('0.0000001'), 1n);
+    assert.equal(parseAmountToStroops('90000000000'), 900000000000000000n);
+    assert.throws(() => parseAmountToStroops('90000000000.0000001'));
+    const hash = 'a'.repeat(64);
+    const settled = await fetchSettlement('https://example.invalid', hash, async () => new Response(JSON.stringify({
+      hash, successful: true, ledger: 1, fee_charged: '100', created_at: '2026-01-01T00:00:00Z'
+    })));
+    assert.equal(settled.feeCharged, '0.0000100 XLM');
+    assert.equal(await fetchSettlement('https://example.invalid', hash, async () => new Response(null, {status: 404})), null);
+    console.log('Isolated installed SDK: compiled imports, declarations, exact amounts and read-only settlement passed.');
+  `;
+  writeFileSync(join(root, 'probe.mjs'), probe);
+  const result = spawnSync(process.execPath, ['probe.mjs'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } });
+  if (result.status !== 0) throw new Error(result.stderr || 'SDK consumer probe failed.');
+  console.log(result.stdout.trim());
 } finally {
   assert.ok(root.startsWith(resolve(tmpdir()) + sep) && root.includes('jisr-sdk-consumer-'));
   rmSync(root, { recursive: true, force: true });

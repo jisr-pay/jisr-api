@@ -26,10 +26,11 @@ fetcher (network responses are mocked in tests):
   created_at, fee_charged). 404 → unknown; 429 → throws (unavailable).
 - `GET /transactions/{hash}/operations` — operations list used for identity.
 
-The transaction fetch mirrors the frozen SDK `fetchSettlement` grammar
-(strict transport checks, same bounds, far-future rejection). Once the SDK
-ships compiled exports, this portion swaps to the SDK parser and the rest of
-the contract stays identical.
+The transaction fetch now uses the installed Jisr SDK fetchSettlement helper.
+A fetch adapter composes caller cancellation with the SDK timeout and supplies
+one response body to both settlement validation and sender identity checks.
+API-specific id, fee-length and timestamp grammar checks remain stricter than
+the SDK. Exact operation amounts use the SDK amount parser.
 
 ### Verification matrix
 
@@ -63,8 +64,7 @@ unconfigured service cannot report false settlement evidence.
 
 - **Contract source** for `route_payment` event decoding (original source +
   deployment provenance from the source holder).
-- **SDK compiled exports** so `parseAmountToStroops` / `fetchSettlement` are
-  consumed behind this transport grammar instead of mirrored.
+
 The adapter also returns senderVerified when the transaction source_account
 matches the claimed sender. This allows a wallet to register its own failed
 transaction without claiming the failed operations paid anyone. HTTPS is required

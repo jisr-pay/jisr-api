@@ -1,0 +1,11 @@
+{
+  "name": "@workspace/jisr-sdk",
+  "version": "0.3.0",
+  "artifact": "vendor/workspace-jisr-sdk-0.3.0.tgz",
+  "sha256": "012977f0b5b80563141e59cfcbcf080ac3cb0839fdd414db54d6fc7e50cdcbc8",
+  "sourceRepository": "https://github.com/jisr-pay/jisr-sdk",
+  "sourceCommit": "4a21043ec238a11adbc9c99f858e438fbc4fad9e",
+  "sourceTree": "59350f13ef5f6a10717a4ebb985891f5269a38ad",
+  "packedFrom": "jisr-pay/jisr-web lib/jisr-sdk at 5deb3210f3d7bf03afb64199b8dcd18fab512c5c",
+  "node": "v24.19.0"
+}

@@ -40,6 +40,46 @@ function lookup() {
   return createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: fetcher(routes([nativeOp()])) });
 }
 
+test('SDK integration reads one transaction response and preserves request policy', async () => {
+  const calls = [];
+  const fake = fetcher(routes([nativeOp()], { tx: { ...TX, source_account: record.sender } }));
+  const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: async (url, options) => {
+    calls.push(url);
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers.accept, 'application/json');
+    return fake(url, options);
+  } });
+  const evidence = await adapter({ ...record, contractId: null });
+  assert.equal(evidence.paymentVerified, true);
+  assert.equal(evidence.senderVerified, true);
+  assert.equal(calls.filter(url => url.endsWith(`/transactions/${HASH}`)).length, 1);
+  assert.equal(calls.length, 3);
+});
+
+test('reconciliation timeout aborts the SDK transaction request and stays pending', async t => {
+  const store = openStore(':memory:'); t.after(() => store.close());
+  store.register({ ...record, contractId: null });
+  let requestSignal;
+  const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: async (url, options) => {
+    if (url === 'https://horizon.testnet') return new Response(JSON.stringify({ network_passphrase: 'Test SDF Network ; September 2015' }));
+    requestSignal = options.signal;
+    return new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    });
+  } });
+  const result = await createReconciler(store, adapter, { timeoutMs: 30 })(HASH);
+  assert.equal(result.outcome, 'unavailable');
+  assert.equal(result.record.status, 'pending');
+  assert.equal(requestSignal.aborted, true);
+});
+
+test('SDK integration preserves stricter API fee and timestamp evidence bounds', async () => {
+  for (const patch of [{ fee_charged: '1'.repeat(19) }, { created_at: 'January 1, 2026' }, { id: 'b'.repeat(64) }]) {
+    const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet', fetcher: fetcher(routes([], { tx: { ...TX, ...patch } })) });
+    await assert.rejects(() => adapter(record), { code: 'NETWORK' });
+  }
+});
+
 test('wrong or missing endpoint network identity rejects evidence', async () => {
   for (const body of [{ network_passphrase: 'Public Global Stellar Network ; September 2015' }, {}]) {
     const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
@@ -51,7 +91,7 @@ test('wrong or missing endpoint network identity rejects evidence', async () => 
 test('transaction hash must match even when id matches', async () => {
   const adapter = createHorizonLookup({ horizonUrl: 'https://horizon.testnet',
     fetcher: fetcher(routes([nativeOp()], { tx: { ...TX, hash: 'b'.repeat(64) } })) });
-  await assert.rejects(() => adapter(record), /hash/);
+  await assert.rejects(() => adapter(record), { code: 'NETWORK' });
 });
 
 test('unrelated or unsuccessful operations cannot prove payment', async () => {
