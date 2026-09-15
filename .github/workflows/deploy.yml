@@ -1,0 +1,24 @@
+name: Fly deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fly-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --remote-only --wait-timeout 300
+      - name: Skip deploy
+        if: ${{ env.FLY_API_TOKEN == '' }}
+        run: echo "FLY_API_TOKEN secret not configured yet; skipping deploy (see DEPLOY.md)."

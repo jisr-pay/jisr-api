@@ -1,0 +1,38 @@
+# Fly.io configuration for the Jisr Testnet internal API.
+# Secrets (SERVICE_TOKEN, WALLET_AUTH_ORIGIN) are set with `fly secrets`, not here.
+app = "jisr-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # The server binds HOST explicitly; must be 0.0.0.0 behind Fly's proxy.
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  DATABASE_PATH = "/data/transfers.sqlite"
+  HORIZON_URL = "https://horizon-testnet.stellar.org"
+
+[mounts]
+  source = "jisr_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Suspend keeps the SQLite journal on disk and wakes quickly at no cost.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Set to 1 for an always-on instance (wake-up adds a short delay otherwise).
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
