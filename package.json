@@ -1,0 +1,19 @@
+{
+  "name": "@jisr-pay/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/main.js",
+    "test": "node --test --test-isolation=none",
+    "build": "node scripts/check.js",
+    "check:sdk": "node scripts/check-sdk.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "16.3.0",
+    "@workspace/jisr-sdk": "file:vendor/workspace-jisr-sdk-0.3.0.tgz"
+  }
+}
