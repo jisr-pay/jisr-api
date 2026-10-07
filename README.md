@@ -75,3 +75,14 @@ Rollback requires restoring the pre-upgrade backup, not lowering user_version.
 Wallet routes prove possession of the G-address key. They do not establish
 multisig account authority or authorize funds. Real Freighter browser acceptance
 and the frontend connection are still required.
+
+## October 9 submission preparation
+
+See the [scoped engineering backlog](docs/WAVE_BACKLOG.md). The organization
+[maintainer record](https://github.com/jisr-pay/.github/blob/main/MAINTAINERS.md)
+tracks ownership and remaining confirmations.
+
+## Stellar Wave submission preparation
+
+See the [submission brief](docs/SUBMISSION.md), [verification record](docs/VERIFICATION_OCT09.md),
+[maintainers](MAINTAINERS.md), and [focused contributor backlog](docs/WAVE_BACKLOG.md).
