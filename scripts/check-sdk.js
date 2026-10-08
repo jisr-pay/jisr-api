@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join, sep } from 'node:path';
@@ -9,7 +9,7 @@ if (!process.env.npm_execpath) throw new Error('Run with npm run check:sdk.');
 const root = mkdtempSync(join(tmpdir(), 'jisr-sdk-consumer-'));
 try {
   mkdirSync(join(root, 'vendor'));
-  for (const file of ['package.json', 'package-lock.json', 'vendor/workspace-jisr-sdk-0.3.0.tgz']) {
+  for (const file of ['package.json', 'package-lock.json', 'vendor/workspace-jisr-sdk-0.4.0.tgz']) {
     copyFileSync(resolve(file), join(root, file));
   }
   const install = spawnSync(process.execPath, [process.env.npm_execpath, 'ci', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'],
@@ -19,16 +19,19 @@ try {
     import assert from 'node:assert/strict';
     import { readFileSync, lstatSync } from 'node:fs';
     import { parseAmountToStroops } from '@workspace/jisr-sdk/amount';
+    import { verifyRouterPayment, fetchRouterPaymentEvidence } from '@workspace/jisr-sdk/router-evidence';
     import { fetchSettlement } from '@workspace/jisr-sdk/settlement';
     import { isSavedTransfer, applySettlement } from '@workspace/jisr-sdk/transfer-history';
     const manifest = JSON.parse(readFileSync('node_modules/@workspace/jisr-sdk/package.json', 'utf8'));
-    assert.equal(manifest.version, '0.3.0');
+    assert.equal(manifest.version, '0.4.0');
     assert.equal(lstatSync('node_modules/@workspace/jisr-sdk').isSymbolicLink(), false);
     for (const entry of Object.values(manifest.exports)) {
       if (typeof entry === 'string') continue;
       assert.ok(entry.default.endsWith('.js'));
       assert.ok(readFileSync('node_modules/@workspace/jisr-sdk/' + entry.types).length);
     }
+    assert.equal(typeof verifyRouterPayment, 'function');
+    assert.equal(typeof fetchRouterPaymentEvidence, 'function');
     assert.equal(typeof isSavedTransfer, 'function');
     assert.equal(typeof applySettlement, 'function');
     assert.equal(parseAmountToStroops('0.0000001'), 1n);

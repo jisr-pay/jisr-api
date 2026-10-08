@@ -14,7 +14,18 @@ const store = openStore(databasePath);
 let lookup;
 let server;
 try {
-  lookup = process.env.HORIZON_URL ? createHorizonLookup({ horizonUrl: process.env.HORIZON_URL }) : undefined;
+  const routerKeys = ['SOROBAN_RPC_URL', 'ROUTER_CONTRACT_ID', 'ROUTER_TOKEN_ADDRESS', 'ROUTER_TREASURY_ADDRESS', 'ROUTER_FEE_BPS'];
+  if (routerKeys.some(key => process.env[key] !== undefined) &&
+      (!process.env.HORIZON_URL || !routerKeys.every(key => process.env[key]) || !/^\d+$/.test(process.env.ROUTER_FEE_BPS))) {
+    throw new Error('Incomplete router evidence configuration.');
+  }
+  lookup = process.env.HORIZON_URL ? createHorizonLookup({ horizonUrl: process.env.HORIZON_URL,
+    rpcUrl: process.env.SOROBAN_RPC_URL,
+    routerPolicy: process.env.ROUTER_CONTRACT_ID ? {
+      contractId: process.env.ROUTER_CONTRACT_ID, tokenAddress: process.env.ROUTER_TOKEN_ADDRESS,
+      treasuryAddress: process.env.ROUTER_TREASURY_ADDRESS, feeBps: Number(process.env.ROUTER_FEE_BPS),
+    } : undefined,
+  }) : undefined;
   server = createApi({ store, token: process.env.SERVICE_TOKEN, lookup, walletOrigin: process.env.WALLET_AUTH_ORIGIN });
 }
 catch (error) { store.close(); throw error; }

@@ -1,0 +1,28 @@
+{
+  "version": "0.4.0",
+  "sourceFiles": {
+    "errors.ts": "3ce5ac812ccad405de3a5911ee96e72a194fc6efba9c0914662d0f662bb0740b",
+    "settlement.ts": "fc2b7addccc31215005944ee43822235bb7517c914c495b58e660b616ec2cd11",
+    "rateLimit.ts": "fc0409f0eacf82fd3cd29b592c49c9d1586aece29040cba9ddb2d9a5816907c6",
+    "amount.ts": "f89ccd079ca095a31304cd907f84ef66f52a7973b8f5a1d987cdc21d660ebabf",
+    "transfer-history.ts": "bc4e391730f9477bb94c81865514e4fb8177ce4225f2e40afce450e5762ad2f6",
+    "logger.ts": "9e9f999bfad5e04c223b04205e6bc3cc4b88595b6098e4f305b270e7d6e04775",
+    "rateLimit.test.ts": "88fdc525fc2803ce61625a4732b812345a190648eac4ee42dea386bb965a1c76",
+    "network-config.ts": "c3d3d9b201ea116c2d290209444319c7c49b83e62575cc4b1ad380de48c3f44e",
+    "router-evidence.ts": "c71f4c2aabe09345ef9a95f4362fe861db0921a53e5eae31db7e991ea64b16ed",
+    "transfer-history.test.ts": "9707086cc79367fae0ac5f87437222874fac16cc19b3c419ce1ed5735afcc16a",
+    "settlement.test.ts": "e67f59e614a09168d4b6f0dcc7d6d59f6aae46e0b77ed2338060aa163d317faa",
+    "amount.test.ts": "5976559e1e63d6adde4f32fa35d04511ab654b4ce5efe9b50eccac09c2d1c13c",
+    "network-config.test.ts": "55811f95f5ac346d9f0b748a4d7b4b2aa3a3434ee8110928c489eef76966db59",
+    "index.ts": "b94c8eb1ec64c20eaf40d18a6f4e7b3e928c2957f826a83181ad4ea8a73a7bce",
+    "payment.test.ts": "9219028abf6985681f50c6149d6c4741d053009e9f18acebd7b19a0249db3a9e",
+    "router-evidence.test.ts": "891288b09df865ea2f83c31474aaf63d7d3bc3a5168669382d4aad582d66bda7",
+    "index.test.ts": "605b35abd9793b0a896df6c41ca41e427ee5db606c56b6e7fe67fa942b5a235f",
+    "errors.test.ts": "984e83aa6555180806df0575d1a7af3c8c41db5dd154ccd628497c4b2147a97c",
+    "payment.ts": "d389a75306c6a9a1ac4281ab79adc6370a6b4e422f0e4a87ae212abb0f02a6d6"
+  },
+  "standaloneWorkspaceParity": true,
+  "artifactSha256": "23cbd4956c1d590161f530118009986f8550200161ea134980a61d856d928e66",
+  "artifactIntegrity": "sha512-XIZW+eim/uUEmzg1QXKyPSLY9uC1A3+vYO31j6dh2Aj8luYQdKOY433b4SQ25W462ezZhhPVihSKyQbbb8od0Q==",
+  "note": "Unpublished local artifact; final Git revisions are recorded after commits. No npm registry release is claimed."
+}

@@ -35,11 +35,11 @@ The registration amount is a positive decimal string with at most seven fraction
 
 ## SDK handoff
 
-See [the backend SDK review](SDK_REVIEW.md) for the verified v0.3.0 compiled package, artifact provenance and isolated consumer check. The API installs a pinned tarball from `vendor/`; it does not require the web workspace or an npm registry release.
+See [the backend SDK review](SDK_REVIEW.md) for the compiled SDK 0.4.0 package, artifact provenance and isolated consumer check. The API installs a pinned tarball from `vendor/`; it does not require the web workspace or an npm registry release.
 
 `createApi({ store, token, lookup })` injects a server-side lookup adapter. `lookup(record, { signal })` returns `null` for an unknown transaction, or `{ settlement, paymentVerified }`. Settlement fields match the current web `TransferSettlement` shape: `hash`, `successful`, `feeCharged`, `ledger`, `createdAt`. The live Horizon adapter, its verification matrix and outcome mapping are documented in [docs/EVIDENCE.md](docs/EVIDENCE.md); the implemented wallet-session protocol is in [docs/OWNERSHIP.md](docs/OWNERSHIP.md).
 
-For native XLM registrations (`contractId: null`), the adapter verifies Testnet and matches sender, recipient, native asset and exact amount against successful operation evidence. Non-null contract claims also require verified invocation/event evidence and currently remain unverified. A transaction success flag alone is insufficient. Failed network transactions can be marked failed; missing results, exceptions, timeouts, invalid evidence and unverified successful payments do not change stored status. Concurrent requests share one lookup per process. Optimistic database revisions prevent delayed results from overwriting newer evidence; confirmed records cannot be downgraded.
+For native XLM registrations (`contractId: null`), the adapter verifies Testnet and matches sender, recipient, native asset and exact amount against successful operation evidence. Non-null contract claims also require verified invocation/event evidence when the optional router policy is configured. A transaction success flag alone is insufficient. Failed network transactions can be marked failed; missing results, exceptions, timeouts, invalid evidence and unverified successful payments do not change stored status. Concurrent requests share one lookup per process. Optimistic database revisions prevent delayed results from overwriting newer evidence; confirmed records cannot be downgraded.
 
 The executable defaults to no live adapter and stays safe until `HORIZON_URL` is set (startup logs state which mode is active). Fixture adapters are used only in tests. Jisr SDK read-only amount and settlement imports are now used at runtime. Caller cancellation is combined with the SDK timeout. Stellar SDK checksum and signature helpers are used directly. No signing, rebroadcasting, background polling scheduler, fiat payout or bank provider integration is implemented.
 
@@ -65,7 +65,7 @@ For current native XLM payments send `contractId: null`; do not forward the
 legacy contract metadata from browser history as an invocation claim.
 Old contract registrations are preserved and cannot be converted by retrying.
 A matching native operation confirms only a native registration; contract claims
-remain unverified until contract evidence decoding is implemented.
+remain pending unless their configured router invocation and successful events establish the exact claim.
 
 Schema migration 002 creates durable challenge/session tables and a sender
 index without rewriting existing transfers. It applies in the startup transaction;
@@ -86,3 +86,7 @@ tracks ownership and remaining confirmations.
 
 See the [submission brief](docs/SUBMISSION.md), [verification record](docs/VERIFICATION_OCT09.md),
 [maintainers](MAINTAINERS.md), and [focused contributor backlog](docs/WAVE_BACKLOG.md).
+
+## Router evidence integration
+
+See [ROUTER_INTEGRATION.md](docs/ROUTER_INTEGRATION.md) and the complete commented configuration in .env.example. The pinned compiled SDK verifies exact router invocation and fee-split events. The API never signs or broadcasts transactions. `node scripts/testnet-router-check.js` optionally checks the synthetic SDK demo through the local HTTP API and live Testnet services.

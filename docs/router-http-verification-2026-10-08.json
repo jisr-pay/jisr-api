@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-10-08T15:04:20.592Z",
+  "record": {
+    "hash": "7bd2f4ee71912363bfc76a809bbdfd212c8d540e9f5063116a9b90519467b4fd",
+    "sender": "GBUNMSIZL7AWFGP7GRLKLLOZ7LWQBQB2LTYUTZLAEXJQN5IZSA7XFRIO",
+    "recipient": "GBLTTJWTVMYA47HJNROEBV3FJCMHRXINVDO2RNGYPRVWP3H27546EWJW",
+    "amount": "1",
+    "contractId": "CCGSUUQLWXKU6AZ6YKUNXLR7R6KLBYBG4AJGJ54XV4DC63AJ3LDVPNW4",
+    "network": "TESTNET",
+    "asset": "XLM",
+    "submittedAt": "2026-10-08T14:56:00.362Z"
+  },
+  "registrationStatus": 201,
+  "reconciliation": {
+    "httpStatus": 200,
+    "outcome": "confirmed",
+    "status": "confirmed"
+  },
+  "wrongAmountRejected": true,
+  "ledger": 5089553,
+  "timeoutMs": 30000,
+  "note": "Real SDK-created Testnet payment, checked through local HTTP API and live Horizon/RPC. Service token and signing keys are not retained. This does not establish deployed API or Freighter acceptance."
+}
