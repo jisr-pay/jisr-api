@@ -5,18 +5,17 @@
  *   null                                     -> transaction unknown on Horizon
  *   { settlement, paymentVerified, reason }  -> discoverable evidence
  *
- * paymentVerified is true only when a native XLM payment operation proves the
- * transaction's sender, recipient and amount exactly, with no contract claim.
- * The endpoint must identify itself as Testnet. Payments routed through
- * the route_payment contract are detected but their token/sender/recipient/
- * amount identities cannot yet be proven without the contract source and
- * Soroban event decoding; those default to unverified rather than guessed.
+ * Native XLM requires exact operation identity without a contract claim.
+ * Contract claims require an administrator-configured router policy, matching
+ * invocation and successful routed/token events, and Horizon/RPC ledger agreement.
+ * Missing evidence remains unverified; endpoint identities must establish Testnet.
  *
  * The SDK validates transaction settlement; this adapter additionally verifies
  * endpoint and payment identity, bounds evidence, and composes cancellation.
  */
 
 import { parseAmountToStroops } from '@workspace/jisr-sdk/amount';
+import { fetchRouterPaymentEvidence, validateRouterPolicy } from '@workspace/jisr-sdk/router-evidence';
 import { fetchSettlement } from '@workspace/jisr-sdk/settlement';
 const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
@@ -41,13 +40,19 @@ async function fetchJson(url, fetcher, signal) {
   return { status: response.status, body };
 }
 
-export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.now } = {}) {
+export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.now, rpcUrl, routerPolicy } = {}) {
   let endpoint;
   try { endpoint = new URL(horizonUrl); } catch { throw new TypeError('Invalid horizonUrl.'); }
   if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
     throw new TypeError('Horizon must use HTTPS without credentials, query or fragment.');
   }
   if (typeof fetcher !== 'function') throw new TypeError('Invalid fetcher.');
+  if (rpcUrl || routerPolicy) {
+    if (!rpcUrl || !routerPolicy) throw new TypeError('Router RPC and policy must be configured together.');
+    validateRouterPolicy(routerPolicy);
+    const rpcEndpoint = new URL(rpcUrl);
+    if (rpcEndpoint.protocol !== 'https:' || rpcEndpoint.username || rpcEndpoint.password || rpcEndpoint.search || rpcEndpoint.hash) throw new TypeError('Invalid router RPC URL.');
+  }
   const base = horizonUrl.replace(/\/+$/, '');
 
   async function fetchTransaction(hash, signal) {
@@ -114,11 +119,16 @@ export function createHorizonLookup({ horizonUrl, fetcher = fetch, now = Date.no
       const transaction = await fetchTransaction(record.hash, signal);
       if (transaction.notFound) return null;
       // Explicit failure does not depend on operation availability.
-      const ops = transaction.settlement.successful
+      const ops = transaction.settlement.successful && !(record.contractId && rpcUrl && routerPolicy)
         ? await fetchOperations(record.hash, signal) : [];
-      const verdict = transaction.settlement.successful
+      let verdict = transaction.settlement.successful
         ? classify(record, ops)
         : { paymentVerified: false, reason: 'UNSUCCESSFUL_TRANSACTION' };
+      if (transaction.settlement.successful && record.contractId && rpcUrl && routerPolicy) {
+        const proof = await fetchRouterPaymentEvidence(rpcUrl, record, routerPolicy, { fetcher, signal });
+        verdict = proof.paymentVerified && proof.ledger !== transaction.settlement.ledger
+          ? { paymentVerified: false, reason: 'ROUTER_LEDGER_MISMATCH' } : proof;
+      }
       return { settlement: transaction.settlement, senderVerified: transaction.sourceAccount === record.sender, ...verdict };
     };
     return verify();

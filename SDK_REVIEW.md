@@ -1,3 +1,9 @@
+# Compiled SDK 0.4.0 integration — October 8, 2026
+
+The current artifact adds shared router evidence verification and compiled declarations. The API uses read-only imports; no signing or broadcast is added. npm run check:sdk verifies isolated installed compiled imports and declarations. See docs/ROUTER_INTEGRATION.md and the artifact integrity in package-lock.json.
+
+## Historical September 14 review
+
 # Backend SDK integration - September 14, 2026
 
 The installed-package blocker is resolved by SDK v0.3.0. The API now consumes
@@ -31,6 +37,6 @@ No backend import uses Jisr payment submission, wallet signing or rebroadcasting
 
 ## Remaining work
 
-Contract claims remain unverified until original contract evidence can be decoded.
+The earlier 0.3.0 artifact did not decode router evidence; this is implemented in 0.4.0 under explicit configuration.
 Frontend wallet-session integration and a real Freighter Testnet acceptance run
 remain outstanding. The backend is not deployed by this integration.

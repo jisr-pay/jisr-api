@@ -12,7 +12,7 @@ Node 24.15+ within Node 24; `npm ci`, `npm run check:sdk`, `npm test`, `npm run 
 
 ## Evidence and supported scope
 
-Native confirmation matches exact amount, sender, recipient, network and asset. Contract claims remain unverified; timeouts/missing results stay pending. Signing/rebroadcasting are outside the API. API functionality can be evaluated independently of the current web contract flow. Live deployed wallet acceptance remains a separate check.
+Native confirmation matches exact amount, sender, recipient, network and asset. Supported router claims are verified against exact invocation, routed and token-transfer events under explicit server policy; timeouts/missing results stay pending. Signing/rebroadcasting are outside the API. API functionality can be evaluated independently of the current web contract flow. Live deployed wallet acceptance remains a separate check.
 
 Evidence reference: [native-payment evidence contract](EVIDENCE.md).
 Baseline source revision: `43592e5d0a519c4fdc3b7cb1d354c5d8b251c7ba`. Final reviewed preparation revision and CI

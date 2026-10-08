@@ -32,3 +32,7 @@ Runtime: Node v24.15.0 for all runtime checks below.
 - Changes will be proposed through a fork PR because the available account
   cannot push directly to the organization's protected branch. Merge decisions
   remain with maintainers. Recheck the final PR checks before applying.
+
+## October 8 recheck
+
+Node 24.15.0: 41 tests, isolated compiled SDK consumer and build/OpenAPI checks passed again. Preparation PR #11 was observed merged.

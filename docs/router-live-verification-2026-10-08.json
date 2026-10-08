@@ -1,0 +1,34 @@
+{
+  "checkedAt": "2026-10-08T14:55:31.286Z",
+  "record": {
+    "hash": "6e79ed7847d34d19fb0d9f8bf43282cd583972537a41d539559a610a7f108910",
+    "network": "TESTNET",
+    "asset": "XLM",
+    "sender": "GB34YRHMR75TG554F7PUUKOPNZZVNCNW3BGO3VN7N5E2C3DOC2DSXWY2",
+    "recipient": "GBSRRMJVNL2L66LZKZNHNAZDDJ7XXOJ65HC7Z52A4HG7PT7QJG5MFP24",
+    "amount": "1",
+    "contractId": "CCGSUUQLWXKU6AZ6YKUNXLR7R6KLBYBG4AJGJ54XV4DC63AJ3LDVPNW4",
+    "submittedAt": "2026-10-08T13:18:10.000Z"
+  },
+  "evidence": {
+    "settlement": {
+      "hash": "6e79ed7847d34d19fb0d9f8bf43282cd583972537a41d539559a610a7f108910",
+      "successful": true,
+      "ledger": 5088380,
+      "createdAt": "2026-10-08T13:18:07Z",
+      "feeCharged": "0.0023520 XLM"
+    },
+    "senderVerified": true,
+    "paymentVerified": true,
+    "reason": "ROUTER_PAYMENT_MATCH",
+    "netUnits": "9875000",
+    "feeUnits": "125000",
+    "ledger": 5088380
+  },
+  "reconciliation": {
+    "outcome": "confirmed",
+    "status": "confirmed"
+  },
+  "note": "Live read-only check of October 8 demo; no signing keys or signed envelopes retained.",
+  "timeoutMs": 30000
+}
