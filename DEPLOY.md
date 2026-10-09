@@ -17,7 +17,7 @@ railway login --browserless      # opens a verification link
 railway init                     # create project "jisr-api"
 railway volume add --mount-path /data
 railway variables set SERVICE_TOKEN=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")
-railway variables set WALLET_AUTH_ORIGIN=https://jisr-pay.vercel.app
+railway variables set WALLET_AUTH_ORIGIN=https://jisr-web.vercel.app
 railway variables set HORIZON_URL=https://horizon-testnet.stellar.org
 railway up                       # build + deploy from this directory
 railway domain                   # generates https://<app>.up.railway.app
