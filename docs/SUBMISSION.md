@@ -20,7 +20,7 @@ results belong in [VERIFICATION_OCT09.md](VERIFICATION_OCT09.md).
 
 ## Maintainers and contributor work
 
-Maintainers: xteesamz and EthTobi; contact via GitHub, available anytime.
+Maintainer: EthTobi; contact via GitHub, available anytime.
 See [MAINTAINERS.md](../MAINTAINERS.md), [CONTRIBUTING.md](../CONTRIBUTING.md),
 [SECURITY.md](../SECURITY.md), and [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md).
 The [focused engineering backlog](WAVE_BACKLOG.md) describes real work, relevant
